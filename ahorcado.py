@@ -14,9 +14,9 @@ def obtener_palabra_secreta() -> str:
     PALABRAS = {
         "animales": ['tiburón', 'jirafa', 'elefante', 'león', 'gato', 'perro', 'cocodrilo', 'ballena', 'cebra', 'erizo'],
         "plantas": ['jazmín', 'helecho', 'ficus', 'diente de león', 'cactus', 'aloe vera', 'narcizo', 'margarita', 'rosa', 'cola de zorro'],
-        "frutas_y_verduras": ['morrón', 'cebolla', 'zanahoria', 'manzana', 'pera', 'papa', 'tomate', 'frutilla', 'sandia', 'coliflor']
+        "frutas y verduras": ['morrón', 'cebolla', 'zanahoria', 'manzana', 'pera', 'papa', 'tomate', 'frutilla', 'sandia', 'coliflor']
     }
-    print("Elige una categoría para jugar: animales, plantas, frutas_y_verduras")
+    print("Elige una categoría para jugar: animales, plantas, frutas y verduras")
     categoria = input("Categoría (o ENTER para aleatoria): ").lower().strip()
 
     if categoria not in PALABRAS:  # si no escribe nada válido → al azar
