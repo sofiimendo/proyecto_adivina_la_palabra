@@ -252,3 +252,5 @@ def main(page: ft.Page):
     )
 
 ft.app(target=main, assets_dir=ASSETS_DIR)
+
+
