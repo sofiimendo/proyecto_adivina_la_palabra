@@ -1,13 +1,13 @@
 import flet as ft
 import flet.canvas as cv
-import os, re, random, unicodedata
+import os, random, unicodedata
 
 # ====== Rutas ======
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 IMG_DIR    = os.path.join(ASSETS_DIR, "images")
 LETTER_DIR = os.path.join(IMG_DIR, "letters")
-HANG_DIR   = os.path.join(IMG_DIR, "hangman")  # stage-01.png (pizarrón) y teacher.png
+HANG_DIR   = os.path.join(IMG_DIR, "hangman")  # stage-01.png (pizarrón); teacher.png (opcional)
 
 # ====== Utils ======
 def quitar_tildes(s: str) -> str:
@@ -39,11 +39,21 @@ def find_letter_asset(letter: str):
             return rel_path(os.path.join(LETTER_DIR, f))
     return None
 
-def find_asset_in_hangman(names: list[str]):
-    for f in list_images(HANG_DIR):
+def find_asset_in(folder, names):
+    for f in list_images(folder):
         low = f.lower()
         if any(n in low for n in names):
-            return rel_path(os.path.join(HANG_DIR, f))
+            return rel_path(os.path.join(folder, f))
+    return None
+
+def find_asset_anywhere(names):
+    for root, _, files in os.walk(ASSETS_DIR):
+        for f in files:
+            name = f.lower()
+            if os.path.splitext(name)[1] not in [".png", ".jpg", ".jpeg", ".webp"]:
+                continue
+            if any(n in name for n in names):
+                return rel_path(os.path.join(root, f))
     return None
 
 # ====== Palabras ======
@@ -65,21 +75,18 @@ def main(page: ft.Page):
     page.window_min_width = 980
     page.window_min_height = 720
 
-    # --- Escena: pizarrón + maestra ---
-    board_src   = find_asset_in_hangman(["stage-01", "pizarron", "board"])
-    teacher_src = find_asset_in_hangman(["teacher", "maestra"])
+    # --- Activos ---
+    board_src = find_asset_in(HANG_DIR, ["stage-01", "pizarron", "board"]) or \
+                find_asset_anywhere(["stage-01", "pizarron", "board"])
+    teacher_src = find_asset_in(HANG_DIR, ["teacher", "maestra"]) or \
+                    find_asset_anywhere(["teacher", "maestra"])
 
-    # Relación del PNG del pizarrón (1049x768 ≈ 1.366)
-    BOARD_ASPECT = 1049 / 768
+    # Pizarrón (sirve de fondo en la escena)
+    board_img = ft.Image(src=board_src, fit=ft.ImageFit.COVER, expand=True)
+    # Maestra: fija a la derecha
+    teacher   = ft.Image(src=teacher_src, fit=ft.ImageFit.CONTAIN) if teacher_src else None
 
-    # tamaños base (se recalculan en on_resize)
-    BOARD_W = 820
-    BOARD_H = int(BOARD_W / BOARD_ASPECT)
-
-    board_img = ft.Image(src=board_src, width=BOARD_W, height=BOARD_H, fit=ft.ImageFit.COVER)
-    teacher   = ft.Image(src=teacher_src, width=320, fit=ft.ImageFit.CONTAIN) if teacher_src else None
-
-    # --- Controles fuera del pizarrón ---
+    # --- Controles header (tal cual te gusta) ---
     dd_categoria = ft.Dropdown(
         label="Categoría",
         value="aleatoria",
@@ -90,23 +97,28 @@ def main(page: ft.Page):
         value="medio",
         content=ft.Row(
             [ft.Radio(value="facil", label="fácil"),
-                ft.Radio(value="medio", label="medio"),
-                ft.Radio(value="dificil", label="difícil")],
+            ft.Radio(value="medio", label="medio"),
+            ft.Radio(value="dificil", label="difícil")],
             spacing=12, alignment=ft.MainAxisAlignment.CENTER),
     )
     btn_empezar = ft.FilledButton("Empezar juego")
     btn_nueva   = ft.OutlinedButton("Nueva partida", disabled=True)
 
-    # --- Controles sobre el pizarrón (tiza) ---
-    palabra_row = ft.Row(wrap=True, spacing=6, alignment=ft.MainAxisAlignment.CENTER)
-    usadas_row  = ft.Row(wrap=True, spacing=4, alignment=ft.MainAxisAlignment.CENTER)
-    entrada     = ft.TextField(label="Ingresá una letra", width=210, disabled=True, text_size=14)
+    # --- Zona de juego (lado izquierdo sobre el pizarrón) ---
+    # Progreso
+    intentos_txt = ft.Text("", size=18, color="white", weight=ft.FontWeight.BOLD)
+    # Palabra (guiones/letras)
+    palabra_row = ft.Row(wrap=True, spacing=10, alignment=ft.MainAxisAlignment.START)
+    # Entrada + probar
+    entrada     = ft.TextField(label="Ingresá una letra", width=240, disabled=True, text_size=14)
     btn_probar  = ft.ElevatedButton("Probar", disabled=True)
-    intentos_txt = ft.Text("", size=16, color="white", weight=ft.FontWeight.BOLD)
+    # Mensajes
     mensaje      = ft.Text("", size=16, color="white", weight=ft.FontWeight.BOLD)
+    # Letras usadas
+    usadas_row  = ft.Row(wrap=True, spacing=6, alignment=ft.MainAxisAlignment.START)
 
-    # --- Canvas tiza (arriba-izq del pizarrón) ---
-    BASE_CANVAS_W, BASE_CANVAS_H = 300, 220
+    # --- Canvas tiza (ahorcado) ---
+    BASE_CANVAS_W, BASE_CANVAS_H = 280, 220
     chalk = cv.Canvas(width=BASE_CANVAS_W, height=BASE_CANVAS_H, expand=False, shapes=[])
 
     def clear_drawing():
@@ -114,34 +126,31 @@ def main(page: ft.Page):
         chalk.update()
 
     def draw_stage(n: int):
-        """Dibuja paso a paso (1..6). En 6 agrega 'ahorcado' (ojos X, nudo y lengua)."""
+        """Dibujo del ahorcado; en 6 queda 'ahorcado'."""
         clear_drawing()
-        stroke = ft.Paint(stroke_width=5, style=ft.PaintingStyle.STROKE, color="#FFFFFF")  # blanco tiza
+        stroke = ft.Paint(stroke_width=5, style=ft.PaintingStyle.STROKE, color="#FFFFFF")
         # estructura
         chalk.shapes.extend([
-            cv.Line(20, 200, 180, 200, paint=stroke),
-            cv.Line(60, 200, 60, 20,   paint=stroke),
-            cv.Line(60, 20, 160, 20,   paint=stroke),
-            cv.Line(160, 20, 160, 45,  paint=stroke),
+            cv.Line(10, 200, 170, 200, paint=stroke),
+            cv.Line(50, 200, 50, 20,   paint=stroke),
+            cv.Line(50, 20, 150, 20,   paint=stroke),
+            cv.Line(150, 20, 150, 45,  paint=stroke),
         ])
-        if n >= 1: chalk.shapes.append(cv.Circle(160, 70, 20, paint=stroke))              # cabeza
-        if n >= 2: chalk.shapes.append(cv.Line(160, 90, 160, 145, paint=stroke))          # torso
-        if n >= 3: chalk.shapes.append(cv.Line(160, 105, 130, 125, paint=stroke))         # brazo izq
-        if n >= 4: chalk.shapes.append(cv.Line(160, 105, 190, 125, paint=stroke))         # brazo der
-        if n >= 5: chalk.shapes.append(cv.Line(160, 145, 135, 185, paint=stroke))         # pierna izq
+        if n >= 1: chalk.shapes.append(cv.Circle(150, 70, 20, paint=stroke))
+        if n >= 2: chalk.shapes.append(cv.Line(150, 90, 150, 145, paint=stroke))
+        if n >= 3: chalk.shapes.append(cv.Line(150, 105, 120, 125, paint=stroke))
+        if n >= 4: chalk.shapes.append(cv.Line(150, 105, 180, 125, paint=stroke))
+        if n >= 5: chalk.shapes.append(cv.Line(150, 145, 125, 185, paint=stroke))
         if n >= 6:
-            chalk.shapes.append(cv.Line(160, 145, 185, 185, paint=stroke))                # pierna der
-            # nudo/cuerda al cuello
-            chalk.shapes.append(cv.Line(160, 88, 160, 96, paint=stroke))
-            chalk.shapes.append(cv.Line(156, 92, 164, 92, paint=stroke))
-            # ojos en X
-            chalk.shapes.extend([
+            chalk.shapes.append(cv.Line(150, 145, 175, 185, paint=stroke))
+            chalk.shapes.append(cv.Line(150, 88, 150, 96, paint=stroke))       # nudo
+            chalk.shapes.append(cv.Line(146, 92, 154, 92, paint=stroke))
+            chalk.shapes.extend([                                             # ojos X
+                cv.Line(142, 64, 148, 70, paint=stroke), cv.Line(148, 64, 142, 70, paint=stroke),
                 cv.Line(152, 64, 158, 70, paint=stroke), cv.Line(158, 64, 152, 70, paint=stroke),
-                cv.Line(162, 64, 168, 70, paint=stroke), cv.Line(168, 64, 162, 70, paint=stroke),
             ])
-            # lengua (pequeño rectángulo)
-            chalk.shapes.append(cv.Line(160, 78, 160, 84, paint=stroke))
-            chalk.shapes.append(cv.Line(157, 84, 163, 84, paint=stroke))
+            chalk.shapes.append(cv.Line(150, 78, 150, 84, paint=stroke))      # lengua
+            chalk.shapes.append(cv.Line(147, 84, 153, 84, paint=stroke))
         chalk.update()
 
     # ---------- Estado ----------
@@ -150,7 +159,7 @@ def main(page: ft.Page):
     letras_usadas = set()
     indices_revelados = set()
     errores = 0
-    MAX_ERRORES = 6
+    MAX_ERRORES = 6  # SIEMPRE 6
 
     # ---------- Render ----------
     def render_palabra():
@@ -162,19 +171,17 @@ def main(page: ft.Page):
             elif i in indices_revelados or ch_cmp in letras_usadas:
                 src = find_letter_asset(ch_cmp)
                 palabra_row.controls.append(
-                    ft.Image(src=src, width=32, height=32) if src else ft.Text(ch_orig, size=30, color="white")
+                    ft.Image(src=src, width=30, height=30) if src else ft.Text(ch_orig, size=28, color="white")
                 )
             else:
-                palabra_row.controls.append(ft.Text("_", size=30, color="white"))
+                palabra_row.controls.append(ft.Text("_", size=28, color="white"))
         palabra_row.update()
 
     def render_usadas():
         usadas_row.controls.clear()
         for l in sorted(letras_usadas):
             src = find_letter_asset(l)
-            usadas_row.controls.append(
-                ft.Image(src=src, width=22, height=22) if src else ft.Text(l, color="white", size=16)
-            )
+            usadas_row.controls.append(ft.Image(src=src, width=22, height=22) if src else ft.Text(l, color="white", size=16))
         usadas_row.update()
 
     def actualizar_intentos():
@@ -190,13 +197,11 @@ def main(page: ft.Page):
         entrada.update(); btn_probar.update(); btn_nueva.update()
 
     def check_fin():
-        # ¿Ganó?
         for i, c in enumerate(palabra_cmp):
             if c.isalpha() and (i not in indices_revelados) and (c not in letras_usadas):
                 break
         else:
             finalizar(f"🎉 ¡Ganaste! Era: {palabra_orig}", "green"); return True
-        # ¿Perdió?
         if errores >= MAX_ERRORES:
             finalizar(f"💀 Perdiste. Era: {palabra_orig}", "red"); return True
         return False
@@ -209,14 +214,11 @@ def main(page: ft.Page):
 
         if len(letra_raw) != 1 or not letra_raw.isalpha():
             mensaje.value, mensaje.color = "⚠️ Ingresá UNA letra válida.", "orange"; mensaje.update(); return
-
         letra_norm = quitar_tildes(letra_raw)[0]
-
         if letra_norm in letras_usadas:
             mensaje.value, mensaje.color = f"⚠️ Ya usaste '{letra_raw}'.", "orange"; mensaje.update(); return
 
         letras_usadas.add(letra_norm); render_usadas()
-
         if letra_norm in palabra_cmp:
             mensaje.value, mensaje.color = f"✅ ¡Bien! '{letra_raw}' está.", "green"
         else:
@@ -230,7 +232,7 @@ def main(page: ft.Page):
         check_fin()
 
     def revelar_inicial(nivel: str):
-        """fácil=2, medio=1, difícil=0."""
+        """fácil=2, medio=1, difícil=0 (sin cambiar intentos)."""
         indices_revelados.clear()
         n = 2 if nivel == "facil" else 1 if nivel == "medio" else 0
         idxs = [i for i, ch in enumerate(palabra_cmp) if ch.isalpha()]
@@ -244,19 +246,14 @@ def main(page: ft.Page):
     def iniciar_juego(_):
         nonlocal palabra_orig, palabra_cmp, letras_usadas, errores
         letras_usadas = set(); errores = 0
-
-        categoria = dd_categoria.value
-        nivel     = rg_nivel.value
-
+        categoria = dd_categoria.value; nivel = rg_nivel.value
         palabra_orig = elegir_palabra(categoria)
         palabra_cmp  = quitar_tildes(palabra_orig).lower()
-
         clear_drawing()
         entrada.disabled = False; btn_probar.disabled = False; btn_nueva.disabled = False
         entrada.update(); btn_probar.update(); btn_nueva.update()
         mensaje.value = ""; mensaje.update()
         actualizar_intentos()
-
         revelar_inicial(nivel)
         render_usadas(); render_palabra()
 
@@ -264,7 +261,6 @@ def main(page: ft.Page):
     btn_nueva.on_click   = iniciar_juego
 
     # ====== LAYOUT ======
-
     header = ft.Column(
         [
             ft.Text("Juego del Ahorcado", size=28, weight=ft.FontWeight.BOLD, color="white"),
@@ -274,96 +270,121 @@ def main(page: ft.Page):
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         spacing=10,
     )
-
     divider = ft.Divider(height=1, thickness=1, color="#373737")
 
-    # Overlay exacto dentro del área del pizarrón (padding responsive)
-    overlay_padding = ft.padding.only(top=110, left=70, right=70, bottom=40)
+    # --- Overlay (columna izquierda) que va sobre el pizarrón ---
+    # Todo el juego en una columna: progreso arriba, luego filas/columnas
+    game_left_col = ft.Column(
+        [
+            # Progreso bajo banderines
+            ft.Container(intentos_txt, padding=ft.padding.only(bottom=10)),
+            # Palabra
+            palabra_row,
+            # Entrada + Probar
+            ft.Row([entrada, btn_probar], spacing=10),
+            # Mensajes
+            mensaje,
+            # Ahorcado + letras usadas
+            ft.Row(
+                [
+                    chalk,
+                    ft.Column(
+                        [
+                            ft.Text("Letras usadas:", color="white", size=14),
+                            usadas_row,
+                        ],
+                        spacing=6,
+                    ),
+                ],
+                spacing=24,
+                alignment=ft.MainAxisAlignment.START,
+            ),
+        ],
+        spacing=12,
+        alignment=ft.MainAxisAlignment.START,
+    )
 
-    overlay = ft.Container(
-        content=ft.Column(
-            [
-                ft.Row(
+    # El overlay vive dentro de un Container (tamaño y padding se ajustan en on_resize)
+    overlay_container = ft.Container(
+        content=game_left_col,
+        padding=ft.padding.only(top=100, left=70, right=70, bottom=40),
+        expand=False,
+        alignment=ft.alignment.top_left,
+    )
+
+    # Escena: Stack con el pizarrón de fondo a pantalla completa + fila visible con overlay y maestra
+    scene_stack = ft.Stack(
+        controls=[
+            ft.Container(board_img, expand=True),  # fondo que llena
+            # Capa superior: split izquierda/derecha
+            ft.Container(
+                content=ft.Row(
                     [
-                        chalk,
-                        ft.Column(
-                            [
-                                palabra_row,
-                                ft.Row([entrada, btn_probar], alignment=ft.MainAxisAlignment.CENTER),
-                                ft.Row([intentos_txt, mensaje], alignment=ft.MainAxisAlignment.CENTER),
-                                ft.Text("Letras usadas:", color="white", size=14),
-                                usadas_row,
-                            ],
-                            spacing=8,
-                            alignment=ft.MainAxisAlignment.START,
+                        # IZQUIERDA: overlay sobre pizarrón
+                        ft.Container(overlay_container, alignment=ft.alignment.top_left, expand=True),
+                        # DERECHA: maestra fija, no pisa nada
+                        ft.Container(
+                            content=(teacher if teacher else ft.Container()),
+                            alignment=ft.alignment.bottom_right,
+                            expand=True,
+                            padding=ft.padding.only(right=20, bottom=10),
                         ),
                     ],
-                    spacing=30,
-                    alignment=ft.MainAxisAlignment.START,
+                    spacing=0,
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+                    expand=True,
                 ),
-            ],
-            spacing=8,
-            alignment=ft.MainAxisAlignment.START,
-        ),
-        padding=overlay_padding,
-        width=BOARD_W,
-        height=BOARD_H,
-    )
-
-    board_stack = ft.Stack(
-        [
-            ft.Container(content=board_img, width=BOARD_W, height=BOARD_H),
-            overlay,
+                expand=True,
+            ),
         ],
-        width=BOARD_W,
-        height=BOARD_H,
+        expand=True,
     )
 
-    # Contenedores para centrar y dar “bottom” visual
-    board_holder   = ft.Container(content=board_stack, alignment=ft.alignment.center, padding=10)
-    teacher_holder = ft.Container(content=teacher, alignment=ft.alignment.bottom_center, padding=10) if teacher else ft.Container()
-
-    scene = ft.Row(
-        [board_holder, teacher_holder],
-        wrap=True,  # si no entra, pasa la maestra abajo
-        alignment=ft.MainAxisAlignment.CENTER,
-        vertical_alignment=ft.CrossAxisAlignment.END,
-        spacing=24,
+    # Root
+    root = ft.Column(
+        [header, divider, ft.Container(scene_stack, expand=True)],
+        spacing=12,
+        expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
     )
-
-    root = ft.Column([header, divider, scene], spacing=12, expand=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     page.add(root)
 
     # ====== Responsividad ======
+    # Usamos el ancho de la mitad izquierda para escalar padding, canvas y tamaños.
     def resize_layout(e=None):
-        nonlocal BOARD_W, BOARD_H
-        # márgenes laterales y ancho disponible
-        avail_w = max(640, page.width - 80)
-        # si la pantalla es angosta, que el pizarrón ocupe ~90%; si es amplia, ~62%
-        frac = 0.9 if avail_w < 1000 else 0.62
-        new_board_w = int(min(900, max(560, avail_w * frac)))
-        new_board_h = int(new_board_w / BOARD_ASPECT)
+        # Alto disponible para la escena (debajo del header)
+        header_guess = 220
+        avail_w = max(900, page.width)           # ancho total de ventana
+        avail_h = max(500, page.height - header_guess)
 
-        BOARD_W, BOARD_H = new_board_w, new_board_h
+        # Split 55% / 45% (un poco más de aire a la izquierda)
+        left_w  = int(avail_w * 0.55)
+        right_w = avail_w - left_w
 
-        # tamaño maestra
-        teacher_w = int(min(360, max(240, avail_w * 0.24)))
-        if teacher:
-            teacher.width = teacher_w
-            teacher.update()
-
-        # actualizar board y overlay
-        board_img.width = BOARD_W; board_img.height = BOARD_H; board_img.update()
-        overlay.width = BOARD_W; overlay.height = BOARD_H
-
-        # padding del overlay proporcional al ancho del pizarrón
-        s = BOARD_W / 820  # 820 era el ancho base
-        overlay.padding = ft.padding.only(
-            top=int(110 * s), left=int(70 * s), right=int(70 * s), bottom=int(40 * s)
+        # Padding del overlay (zona segura del pizarrón) proporcional al ancho izquierdo
+        # Estos coeficientes están calibrados para tu imagen; podés tocarlos fino si querés.
+        s = max(0.8, min(1.6, left_w / 900))  # factor de escala suave
+        overlay_container.padding = ft.padding.only(
+            top=int(95 * s), left=int(60 * s), right=int(40 * s), bottom=int(30 * s)
         )
-        overlay.update()
+        overlay_container.width = left_w
+        overlay_container.height = avail_h
+
+        # Canvas del ahorcado escala junto con el overlay
+        chalk.width  = int(BASE_CANVAS_W * s)
+        chalk.height = int(BASE_CANVAS_H * s)
+
+        # Maestra acompaña el espacio derecho
+        if teacher:
+            teacher.width = int(min(460, max(260, right_w * 0.70)))
+
+        # Fuerzo updates
+        overlay_container.update()
+        chalk.update()
+        if teacher: teacher.update()
 
     page.on_resize = resize_layout
-    resize_layout()  # primera vez
+    resize_layout()
 
 ft.app(target=main, assets_dir=ASSETS_DIR)
