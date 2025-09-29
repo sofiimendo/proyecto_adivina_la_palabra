@@ -140,3 +140,7 @@ def juego_ahorcado():
             print(f"Lo sentimos mucho se te han acabado los intentos, la palabra secreta era '{palabra_secreta.capitalize()}'")
 
 juego_ahorcado()
+
+
+
+
