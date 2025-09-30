@@ -1,5 +1,5 @@
 import random
-import unicodedata
+import unicodedata # esto sirve para normalizar los caracteres
 
 print(f"\n 🤩 Bienvenido al juego de adivinar la palabra secreta 🤩\n")
 
@@ -30,8 +30,8 @@ def seleccionar_dificultad():
 #FUNCION PARA SACAR LAS TILDES
 def quitar_tildes(texto):
     return ''.join(
-        c for c in unicodedata.normalize('NFD', texto)
-        if unicodedata.category(c) != 'Mn'
+        c for c in unicodedata.normalize('NFD', texto) #descompone la letra mas el tilde en dos caracteres
+        if unicodedata.category(c) != 'Mn' #marca no espaciado, conserva solo los caracteres 
     )
 
 #FUNCION PARA QUE SE ELIJA LA PALABRA
@@ -99,7 +99,7 @@ def juego_ahorcado():
 
         if pedir_letra_sin_tilde in letras_adivinadas:
             print("📛 Ya has utilizado esa letra, prueba con otra")
-            continue  # no resta intentos
+            continue  # acá no resta intentos al poner la misma letra
 
         letras_adivinadas.append(pedir_letra_sin_tilde)
 
@@ -122,5 +122,3 @@ def juego_ahorcado():
             print(f"😵Lo sentimos mucho se te han acabado los intentos, la palabra secreta era '{palabra_secreta.capitalize()}'")
 
 juego_ahorcado()
-
-
